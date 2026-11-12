@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ถ่ายและลงทะเบียนใบหน้า</title>
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/dist/human.js"></script>
+  <style>
+    :root{font:16px system-ui,sans-serif;color:#183a33;background:#f3f7f5}*{box-sizing:border-box}body{margin:0;padding:22px}.layout{max-width:1080px;margin:auto;display:grid;grid-template-columns:1.25fr .85fr;gap:18px}.card{background:#fff;border:1px solid #dce8e2;border-radius:16px;padding:20px;box-shadow:0 8px 30px #17352f0c}h1{margin:0 0 8px;font-size:24px}.muted{color:#64766f;line-height:1.55;font-size:14px}.videoBox{position:relative;overflow:hidden;border-radius:12px;background:#122522;aspect-ratio:4/3;margin-top:14px;display:grid;place-items:center}video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}.guide{position:absolute;border:2px solid #a7ead1;border-radius:48% 48% 42% 42%;width:45%;height:74%;pointer-events:none;box-shadow:0 0 0 999px #0003}.field{display:grid;gap:6px;margin:14px 0}.field label{font-weight:700;font-size:14px}.field input,.field select,.field textarea{font:inherit;border:1px solid #cad8d1;border-radius:9px;padding:11px;background:#fff;color:#183a33}.field input[readonly]{background:#f4f7f5}.field textarea{resize:vertical;min-height:72px}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}button{font:inherit;border:0;border-radius:10px;background:#1a6c56;color:#fff;padding:12px 16px;font-weight:700;cursor:pointer}button.secondary{background:#e8f1ed;color:#245c4c}button:disabled{opacity:.5;cursor:wait}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.notice{margin-top:13px;min-height:24px;color:#536b62}.notice.error{color:#a3261d}.notice.success{color:#17633d}.consent{display:flex;gap:10px;align-items:flex-start;font-size:13px;line-height:1.5;color:#51685f;margin:14px 0}.consent input{margin-top:4px;transform:scale(1.15)}.foot{font-size:12px;color:#6d7e77;margin-top:15px}@media(max-width:780px){body{padding:12px}.layout{grid-template-columns:1fr}.row{grid-template-columns:1fr}}
+  </style>
+</head>
+<body><main class="layout">
+  <section class="card"><h1>ลงทะเบียนใบหน้า</h1><div class="muted">จัดใบหน้าให้อยู่ในกรอบและมองกล้องตรง ๆ ระบบประมวลผลภาพบนเครื่องนี้และไม่บันทึกภาพถ่าย</div>
+    <div class="videoBox"><video id="video" autoplay playsinline muted></video><div class="guide"></div></div>
+    <div class="actions"><button id="start">เปิดกล้อง</button><button id="capture" class="secondary" disabled>ตรวจใบหน้าและลงทะเบียน</button></div>
+    <div id="notice" class="notice" role="status">กำลังโหลดโมเดลใบหน้า…</div>
+    <div class="foot">ต้องเชื่อมต่ออินเทอร์เน็ตเพื่อดาวน์โหลดไลบรารีและโมเดลครั้งแรก ภาพจากกล้องประมวลผลในเบราว์เซอร์; ระบบส่งเฉพาะเวกเตอร์แม่แบบและข้อมูลฟอร์มให้ Apps Script</div>
+  </section>
+  <section class="card"><h1>ข้อมูลผู้ลงทะเบียน</h1>
+    <div class="field"><label for="student">นักศึกษา</label><select id="student"><option value="">กำลังโหลดรายชื่อจากฐานข้อมูล…</option></select></div>
+    <div class="row"><div class="field"><label for="sid">รหัสนักศึกษา</label><input id="sid" readonly></div><div class="field"><label for="room">ห้องเรียน</label><input id="room" readonly></div></div>
+    <div class="field"><label for="name">ชื่อ-นามสกุล</label><input id="name" readonly></div>
+    <div class="field"><label for="note">หมายเหตุ (ไม่บังคับ)</label><textarea id="note" maxlength="300" placeholder="เช่น ลงทะเบียนใหม่ / เปลี่ยนภาพใบหน้า"></textarea></div>
+    <label class="consent"><input id="consent" type="checkbox"><span>ยืนยันว่าได้ดำเนินการแจ้งและรับความยินยอมหรือฐานกฎหมายตามขั้นตอนของวิทยาลัยแล้ว</span></label>
+    <div class="foot">ลงทะเบียนแล้ว: ระบบจะบันทึกแม่แบบรุ่นใหม่ในชีต FaceDB เดิม โดยคงคอลัมน์และข้อมูลเดิมไว้</div>
+  </section>
+</main>
+<script>
+(() => {
+  const params=new URLSearchParams(location.search), token=params.get('token')||'', bridgeOrigin=params.get('bridgeOrigin')||'';
+  const EXPECTED_BRIDGE='https://script.google.com';
+  const human=new Human.Human({backend:'webgl',modelBasePath:'https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.6/models/',cacheModels:true,face:{enabled:true,detector:{enabled:true,maxDetected:2},mesh:{enabled:true},description:{enabled:true},iris:{enabled:false},emotion:{enabled:false}},body:{enabled:false},hand:{enabled:false},object:{enabled:false},gesture:{enabled:false},segmentation:{enabled:false}});
+  const $=id=>document.getElementById(id);let stream=null,ready=false;
+  function notice(text,kind=''){ $('notice').className='notice '+kind; $('notice').textContent=text; }
+  function validBridge(){return bridgeOrigin.startsWith('https://script.google.com')||bridgeOrigin.startsWith('https://script.googleusercontent.com');}
+  function send(type,data={}){if(window.opener&&validBridge())window.opener.postMessage({type,token,...data},bridgeOrigin);}
+  $('student').onchange=()=>{const s=roster.find(x=>x.studentId===$('student').value);$('sid').value=s?s.studentId:'';$('name').value=s?s.name:'';$('room').value=s?s.classRoom:'';};
+  let roster=[];
+  window.addEventListener('message',event=>{
+    if(event.origin!==bridgeOrigin||event.source!==window.opener||!event.data||event.data.token!==token)return;
+    if(event.data.type==='FACE_ENROLL_ROSTER'){
+      roster=Array.isArray(event.data.roster)?event.data.roster:[];$('student').replaceChildren(new Option('เลือกนักศึกษา',''));
+      roster.forEach(s=>$('student').add(new Option(s.studentId+' — '+s.name,s.studentId)));
+      notice(roster.length?'โหลดรายชื่อนักศึกษา '+roster.length+' คนแล้ว':'ไม่พบรายชื่อนักศึกษาที่ใช้งาน','');
+    }
+    if(event.data.type==='FACE_ENROLL_RESULT'){notice('บันทึกใบหน้าสำเร็จ: '+event.data.result.studentName,'success');$('capture').disabled=true;}
+    if(event.data.type==='FACE_ENROLL_ERROR'){notice(event.data.message||'บันทึกไม่สำเร็จ','error');$('capture').disabled=false;}
+  });
+  send('FACE_ENROLL_READY');
+  human.load().then(()=>human.warmup()).then(()=>{ready=true;notice('โมเดลพร้อม เปิดกล้องเพื่อเริ่มลงทะเบียน');}).catch(e=>notice('โหลดโมเดลไม่สำเร็จ: '+e.message,'error'));
+  $('start').onclick=async()=>{try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false});$('video').srcObject=stream;await $('video').play();$('capture').disabled=!ready;notice('เปิดกล้องแล้ว เลือกนักศึกษาและถ่ายภาพใบหน้า');}catch(e){notice('เปิดกล้องไม่ได้ กรุณาอนุญาตกล้องให้เบราว์เซอร์: '+e.message,'error');}};
+  $('capture').onclick=async()=>{
+    const sid=$('student').value;if(!sid){notice('กรุณาเลือกนักศึกษา','error');return;}if(!$('consent').checked){notice('กรุณายืนยันขั้นตอนความยินยอมก่อนลงทะเบียน','error');return;}
+    $('capture').disabled=true;notice('กำลังตรวจภาพ…');
+    try{const result=await human.detect($('video'));if(!result.face||result.face.length!==1)throw new Error('ต้องพบใบหน้าเพียงหนึ่งใบในภาพ กรุณาจัดภาพใหม่');const face=result.face[0];if(!face.embedding||!face.embedding.length)throw new Error('สร้างแม่แบบใบหน้าไม่สำเร็จ กรุณาลองใหม่');
+      send('FACE_ENROLL_SUBMIT',{payload:{studentId:sid,embedding:Array.from(face.embedding),modelId:'human-3.3.6-faceres',consentConfirmed:true,note:$('note').value}});notice('ส่งแม่แบบให้ Apps Script แล้ว กำลังบันทึก…');
+    }catch(e){notice(e.message||'ตรวจใบหน้าไม่สำเร็จ','error');$('capture').disabled=false;}
+  };
+  window.addEventListener('beforeunload',()=>{if(stream)stream.getTracks().forEach(t=>t.stop());});
+})();
+</script></body></html>
